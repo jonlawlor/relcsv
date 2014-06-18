@@ -4,143 +4,238 @@ package csv
 import (
 	"encoding/csv"
 	"github.com/jonlawlor/rel"
+	"github.com/jonlawlor/rel/att"
+	"io"
+	"reflect"
+	"strconv"
 )
 
 // New creates a relation that reads from csv, with one tuple per csv record.
 
-func New(r *csv.Reader, z rel.T, ckeystr [][]string) rel.Relation {
+func New(r *csv.Reader, z interface{}, ckeystr [][]string) rel.Relation {
 	if len(ckeystr) == 0 {
-		return &csvTable{r, rel.DefaultKeys(z), z, false}
+		return &csvTable{r, att.DefaultKeys(z), z, false, nil}
 	}
-	ckeys := rel.String2CandKeys(ckeystr)
-	rel.OrderCandidateKeys(ckeys)
-	return &rel.csvTable{r, ckeys, z, true}
-
+	ckeys := att.String2CandKeys(ckeystr)
+	att.OrderCandidateKeys(ckeys)
+	return &csvTable{r, ckeys, z, true, nil}
 }
 
 // csvTable is an implementation of Relation using a csv.Reader
 type csvTable struct {
 	// the *csv.Reader which can produce records
-	source *csv.Reader
+	source1 *csv.Reader
 
 	// set of candidate keys
-	cKeys rel.CandKeys
+	cKeys att.CandKeys
 
 	// the type of the tuples contained within the relation
-	zero rel.T
+	zero interface{}
 
 	// sourceDistinct indicates if the source csv was already distinct or if a
 	// distinct has to be performed when sending tuples
 	sourceDistinct bool
 
+	// TODO(jonlawlor): fold the errors between csv reading & type conversion
+	// together with line numbers?
 	err error
+}
+
+// error types
+
+type FieldMismatch struct {
+	expected, found int
+}
+
+func (e *FieldMismatch) Error() string {
+	return "CSV line fields mismatch. Expected " + strconv.Itoa(e.expected) + " found " + strconv.Itoa(e.found)
+}
+
+type UnsupportedType struct {
+	Type string
+}
+
+func (e *UnsupportedType) Error() string {
+	return "Unsupported type: " + e.Type
 }
 
 // Tuples sends each tuple in the relation to a channel
 // note: this consumes the values of the relation, and when it is finished it
 // closes the input channel.
-func (r *csvTable) Tuples(t chan<- rel.T) chan<- struct{} {
+func (r *csvTable) Tuples(t chan<- interface{}) chan<- struct{} {
 	cancel := make(chan struct{})
 
 	if r.Err() != nil {
 		close(t)
 		return cancel
 	}
+	e1 := reflect.TypeOf(r.zero)
+	// the unmarshaller is based on this stackoverflow answer:
+	// http://stackoverflow.com/a/20773337/774834
+	// thanks, Valentyn Shybanov!
 
 	if r.sourceDistinct {
-		go func(rbody reflect.Value, res chan<- rel.T) {
-			resSel := reflect.SelectCase{reflect.SelectRecv, rbody, reflect.Value{}}
-			canSel := reflect.SelectCase{reflect.SelectRecv, reflect.ValueOf(cancel), reflect.Value{}}
-			cases := []reflect.SelectCase{resSel, canSel}
+		go func(reader *csv.Reader, e1 reflect.Type, res chan<- interface{}) {
+		Loop:
 			for {
-				chosen, rtup, ok := reflect.Select(cases)
-				if !ok || chosen == 1 {
-					// cancel has been closed, so close the results
-					// TODO(jonlawlor): include a cancel channel in the rel.csvTable
-					// struct so that we can continue the cancellation to the data
-					// source.
-					if chosen == 1 {
-						return
+				record, err := reader.Read()
+
+				// if we have an error, it might just be eof, which means
+				// we are done reading the csv.
+				if err != nil {
+					if err != io.EOF {
+						r.err = err
 					}
-					break
+					break Loop
+				}
+
+				tup := reflect.Indirect(reflect.New(e1))
+				if tup.NumField() != len(record) {
+					r.err = &FieldMismatch{tup.NumField(), len(record)}
+					break Loop
+				}
+
+				for i := 0; i < tup.NumField(); i++ {
+					f := tup.Field(i)
+					switch f.Kind() {
+					case reflect.String:
+						f.SetString(record[i])
+					case reflect.Bool:
+						val, err := strconv.ParseBool(record[i])
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+						f.SetBool(val)
+					case reflect.Int:
+						val, err := strconv.ParseInt(record[i], 0, 0)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+						f.SetInt(val)
+					case reflect.Int8:
+						val, err := strconv.ParseInt(record[i], 0, 8)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+						f.SetInt(val)
+					case reflect.Int16:
+						val, err := strconv.ParseInt(record[i], 0, 16)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+						f.SetInt(val)
+					case reflect.Int32:
+						val, err := strconv.ParseInt(record[i], 0, 32)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+						f.SetInt(val)
+					case reflect.Int64:
+						val, err := strconv.ParseInt(record[i], 0, 64)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+						f.SetInt(val)
+					case reflect.Uint:
+						val, err := strconv.ParseUint(record[i], 0, 0)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+						f.SetUint(val)
+					case reflect.Uint8:
+						val, err := strconv.ParseUint(record[i], 0, 8)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+						f.SetUint(val)
+					case reflect.Uint16:
+						val, err := strconv.ParseUint(record[i], 0, 16)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+						f.SetUint(val)
+					case reflect.Uint32:
+						val, err := strconv.ParseUint(record[i], 0, 32)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+						f.SetUint(val)
+					case reflect.Uint64:
+						val, err := strconv.ParseUint(record[i], 0, 64)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+						f.SetUint(val)
+					case reflect.Float32:
+						val, err := strconv.ParseFloat(record[i], 32)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+
+						f.SetFloat(val)
+					case reflect.Float64:
+						val, err := strconv.ParseFloat(record[i], 64)
+						if err != nil {
+							r.err = err
+							break Loop
+						}
+
+						f.SetFloat(val)
+					default:
+						r.err = &UnsupportedType{f.Type().String()}
+						break Loop
+					}
 				}
 				select {
-				case res <- T(rtup.Interface()):
+				case res <- tup.Interface():
 				case <-cancel:
+					// do nothing, this is the end of the line
 					return
 				}
 			}
 			close(res)
-		}(r.rbody, t)
+		}(r.source1, e1, t)
 		return cancel
 	}
-	// build up a map where each key is one of the tuples.  This consumes
-	// memory.
-	mem := map[T]struct{}{}
-	go func(rbody reflect.Value, res chan<- rel.T) {
-		resSel := reflect.SelectCase{reflect.SelectRecv, rbody, reflect.Value{}}
-		canSel := reflect.SelectCase{reflect.SelectRecv, reflect.ValueOf(cancel), reflect.Value{}}
-		cases := []reflect.SelectCase{resSel, canSel}
-		for {
-			chosen, rtup, ok := reflect.Select(cases)
-			if !ok || chosen == 1 {
-				// cancel has been closed, so close the results
-				// TODO(jonlawlor): include a cancel channel in the rel.csvTable
-				// struct so that we can continue the cancellation to the data
-				// source.
-				if chosen == 1 {
-					return
-				}
-				break
-			}
-			tup := T(rtup.Interface())
-			if _, dup := mem[tup]; !dup {
-				select {
-				case res <- tup:
-				case <-cancel:
-					return
-				}
-				mem[tup] = struct{}{}
-			}
-		}
-		close(res)
-	}(r.rbody, t)
 	return cancel
 }
 
 // Zero returns the zero value of the relation (a blank tuple)
-func (r *csvTable) Zero() rel.T {
+func (r *csvTable) Zero() interface{} {
 	return r.zero
 }
 
 // CKeys is the set of candidate keys in the relation
-func (r *csvTable) CKeys() CandKeys {
+func (r *csvTable) CKeys() att.CandKeys {
 	return r.cKeys
 }
 
 // GoString returns a text representation of the Relation
 func (r *csvTable) GoString() string {
-	return goStringTabTable(r)
+	return "placeholder"
 }
 
 // String returns a text representation of the Relation
 func (r *csvTable) String() string {
-	return "Relation(" + HeadingString(r) + ")"
+	return "Relation(" + rel.HeadingString(r) + ")"
 }
 
 // Project creates a new relation with less than or equal degree
 // t2 has to be a new type which is a subdomain of r.
-func (r1 *csvTable) Project(z2 T) Relation {
-	if r1.Err() != nil {
-		return r1
-	}
-	att2 := rel.FieldNames(reflect.TypeOf(z2))
-	if Deg(r1) == len(att2) {
-		// either projection is an error or a no op
-		return r1
-	} else {
-		return &ProjectExpr{r1, z2, nil}
-	}
+func (r1 *csvTable) Project(z2 interface{}) rel.Relation {
+	return rel.NewProject(r1, z2)
 }
 
 // Restrict creates a new relation with less than or equal cardinality
@@ -148,89 +243,72 @@ func (r1 *csvTable) Project(z2 T) Relation {
 // This is a general purpose restrict - we might want to have specific ones for
 // the typical theta comparisons or <= <, =, >, >=, because it will allow much
 // better optimization on the source data side.
-func (r1 *csvTable) Restrict(p Predicate) Relation {
-	if r1.Err() != nil {
-		return r1
-	}
-	return &RestrictExpr{r1, p, nil}
+func (r1 *csvTable) Restrict(p att.Predicate) rel.Relation {
+	return rel.NewRestrict(r1, p)
 }
 
 // Rename creates a new relation with new column names
 // z2 has to be a struct with the same number of fields as the input relation
 // note: we might want to change this into a projectrename operation?  It will
 // be tricky to represent this in go's type system, I think.
-func (r1 *csvTable) Rename(z2 T) Relation {
-	if r1.Err() != nil {
-		return r1
+func (r1 *csvTable) Rename(z2 interface{}) rel.Relation {
+	e2 := reflect.TypeOf(z2)
+
+	// figure out the new names
+	names2 := att.FieldNames(e2)
+
+	// create a map from the old names to the new names if there is any
+	// difference between them
+	nameMap := make(map[att.Attribute]att.Attribute)
+	for i, att := range rel.Heading(r1) {
+		nameMap[att] = names2[i]
 	}
-	return &RenameExpr{r1, z2, nil}
+
+	cKeys1 := r1.cKeys
+	cKeys2 := make(att.CandKeys, len(cKeys1))
+	// for each of the candidate keys, rename any keys from the old names to
+	// the new ones
+	for i := range cKeys1 {
+		cKeys2[i] = make([]att.Attribute, len(cKeys1[i]))
+		for j, key := range cKeys1[i] {
+			cKeys2[i][j] = nameMap[key]
+		}
+	}
+	// order the keys
+	att.OrderCandidateKeys(cKeys2)
+
+	r1.zero = z2
+	r1.cKeys = cKeys2
+	return r1
 }
 
 // Union creates a new relation by unioning the bodies of both inputs
 //
-func (r1 *csvTable) Union(r2 Relation) Relation {
-	if r1.Err() != nil {
-		return r1
-	}
-	if r2.Err() != nil {
-		return r2
-	}
-	return &UnionExpr{r1, r2, nil}
+func (r1 *csvTable) Union(r2 rel.Relation) rel.Relation {
+	return rel.NewUnion(r1, r2)
 }
 
 // SetDiff creates a new relation by set minusing the two inputs
 //
-func (r1 *csvTable) SetDiff(r2 Relation) Relation {
-	if r1.Err() != nil {
-		return r1
-	}
-	if r2.Err() != nil {
-		return r2
-	}
-	return &SetDiffExpr{r1, r2, nil}
+func (r1 *csvTable) SetDiff(r2 rel.Relation) rel.Relation {
+	return rel.NewSetDiff(r1, r2)
 }
 
 // Join creates a new relation by performing a natural join on the inputs
 //
-func (r1 *csvTable) Join(r2 Relation, zero T) Relation {
-	if r1.Err() != nil {
-		return r1
-	}
-	if r2.Err() != nil {
-		return r2
-	}
-	return &JoinExpr{r1, r2, zero, nil}
+func (r1 *csvTable) Join(r2 rel.Relation, zero interface{}) rel.Relation {
+	return rel.NewJoin(r1, r2, zero)
 }
 
 // GroupBy creates a new relation by grouping and applying a user defined func
 //
-func (r1 *csvTable) GroupBy(t2, vt T, gfcn func(<-chan T) T) Relation {
-	if r1.Err() != nil {
-		return r1
-	}
-	return &GroupByExpr{r1, t2, vt, gfcn, nil}
+func (r1 *csvTable) GroupBy(t2, vt interface{}, gfcn func(<-chan interface{}) interface{}) rel.Relation {
+	return rel.NewGroupBy(r1, t2, vt, gfcn)
 }
 
 // Map creates a new relation by applying a function to tuples in the source
-func (r1 *csvTable) Map(mfcn func(from T) (to T), z2 T, ckeystr [][]string) Relation {
-	if r1.Err() != nil {
-		return r1
-	}
-	// determine the type of the returned tuples
-	r := new(MapExpr)
-	r.source1 = r1
-	r.zero = z2
-	r.fcn = mfcn
-	if len(ckeystr) == 0 {
-		// all relations have a candidate key of all of their attributes, or
-		// a non zero subset if the relation is not dee or dum
-		r.cKeys = rel.DefaultKeys(z2)
-	} else {
-		r.isDistinct = true
-		// convert from [][]string to CandKeys
-		r.cKeys = rel.String2CandKeys(ckeystr)
-	}
-	return r
+func (r1 *csvTable) Map(mfcn func(from interface{}) (to interface{}), z2 interface{}, ckeystr [][]string) rel.Relation {
+	return rel.NewMap(r1, mfcn, z2, ckeystr)
 }
 
 // Error returns an error encountered during construction or computation
