@@ -10,15 +10,16 @@ import (
 	"testing"
 )
 
-type suppliersTup struct {
+// example csv data
+
+type supplierTup struct {
 	SNO    int
 	SName  string
 	Status int
 	City   string
 }
 
-func suppliersCSV() rel.Relation {
-	// example csv data
+func suppliers() rel.Relation {
 	csvStr := `1,Smith,20,London
 2,Jones,10,Paris
 3,Blake,30,Paris
@@ -26,7 +27,7 @@ func suppliersCSV() rel.Relation {
 5,Adams,30,Athens`
 	var reader = csv.NewReader(strings.NewReader(csvStr))
 
-	return New(reader, suppliersTup{}, [][]string{[]string{"SNO"}})
+	return New(reader, supplierTup{}, [][]string{[]string{"SNO"}})
 }
 
 type orderTup struct {
@@ -36,22 +37,25 @@ type orderTup struct {
 }
 
 func orders() rel.Relation {
-	return rel.New([]orderTup{
-		{1, 1, 300},
-		{1, 2, 200},
-		{1, 3, 400},
-		{1, 4, 200},
-		{1, 5, 100},
-		{1, 6, 100},
-		{2, 1, 300},
-		{2, 2, 400},
-		{3, 2, 200},
-		{4, 2, 200},
-		{4, 4, 300},
-		{4, 5, 400},
-	}, [][]string{
-		[]string{"PNO", "SNO"},
-	})
+
+	csvStr := `1,1,300
+1,2,200
+1,3,400
+1,4,200
+1,5,100
+1,6,100
+2,1,300
+2,2,400
+3,2,200
+4,2,200
+4,4,300
+4,5,400`
+
+	var reader = csv.NewReader(strings.NewReader(csvStr))
+
+	// intentionally non distinct
+	return New(reader, orderTup{}, [][]string{})
+
 }
 
 func TestCSV(t *testing.T) {
@@ -99,7 +103,7 @@ func TestCSV(t *testing.T) {
 		City    string
 	}
 	mapFcn := func(tup1 interface{}) interface{} {
-		if v, ok := tup1.(suppliersTup); ok {
+		if v, ok := tup1.(supplierTup); ok {
 			return mapRes{v.SNO, v.SName, v.Status * 2, v.City}
 		} else {
 			return mapRes{}
@@ -114,17 +118,17 @@ func TestCSV(t *testing.T) {
 		expectDeg    int
 		expectCard   int
 	}{
-		{suppliersCSV(), "Relation(SNO, SName, Status, City)", 4, 5},
-		{suppliersCSV().Restrict(att.Attribute("SNO").EQ(1)), "σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 1},
-		{suppliersCSV().Project(distinctTup{}), "π{SNO, SName}(Relation(SNO, SName, Status, City))", 2, 5},
-		{suppliersCSV().Project(nonDistinctTup{}), "π{SName, City}(Relation(SNO, SName, Status, City))", 2, 5},
-		{suppliersCSV().Rename(titleCaseTup{}), "Relation(Sno, SName, Status, City)", 4, 5},
-		{suppliersCSV().SetDiff(suppliersCSV().Restrict(att.Attribute("SNO").EQ(1))), "Relation(SNO, SName, Status, City) − σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 4},
-		{suppliersCSV().Union(suppliersCSV().Restrict(att.Attribute("SNO").EQ(1))), "Relation(SNO, SName, Status, City) ∪ σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 5},
-		{suppliersCSV().Join(orders(), joinTup{}), "Relation(SNO, SName, Status, City) ⋈ Relation(PNO, SNO, Qty)", 6, 11},
-		{suppliersCSV().GroupBy(groupByTup{}, valTup{}, groupFcn), "Relation(SNO, SName, Status, City).GroupBy({City, Status}, {Status})", 2, 3},
-		{suppliersCSV().Map(mapFcn, mapRes{}, mapKeys), "Relation(SNO, SName, Status, City).Map({SNO, SName, Status, City}->{SNO, SName, Status2, City})", 4, 5},
-		{suppliersCSV().Map(mapFcn, mapRes{}, [][]string{}), "Relation(SNO, SName, Status, City).Map({SNO, SName, Status, City}->{SNO, SName, Status2, City})", 4, 5},
+		{suppliers(), "Relation(SNO, SName, Status, City)", 4, 5},
+		{suppliers().Restrict(att.Attribute("SNO").EQ(1)), "σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 1},
+		{suppliers().Project(distinctTup{}), "π{SNO, SName}(Relation(SNO, SName, Status, City))", 2, 5},
+		{suppliers().Project(nonDistinctTup{}), "π{SName, City}(Relation(SNO, SName, Status, City))", 2, 5},
+		{suppliers().Rename(titleCaseTup{}), "Relation(Sno, SName, Status, City)", 4, 5},
+		{suppliers().SetDiff(suppliers().Restrict(att.Attribute("SNO").EQ(1))), "Relation(SNO, SName, Status, City) − σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 4},
+		{suppliers().Union(suppliers().Restrict(att.Attribute("SNO").EQ(1))), "Relation(SNO, SName, Status, City) ∪ σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 5},
+		{suppliers().Join(orders(), joinTup{}), "Relation(SNO, SName, Status, City) ⋈ Relation(PNO, SNO, Qty)", 6, 11},
+		{suppliers().GroupBy(groupByTup{}, valTup{}, groupFcn), "Relation(SNO, SName, Status, City).GroupBy({City, Status}, {Status})", 2, 3},
+		{suppliers().Map(mapFcn, mapRes{}, mapKeys), "Relation(SNO, SName, Status, City).Map({SNO, SName, Status, City}->{SNO, SName, Status2, City})", 4, 5},
+		{suppliers().Map(mapFcn, mapRes{}, [][]string{}), "Relation(SNO, SName, Status, City).Map({SNO, SName, Status, City}->{SNO, SName, Status2, City})", 4, 5},
 	}
 
 	for i, tt := range relTest {

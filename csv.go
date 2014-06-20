@@ -76,7 +76,6 @@ func (r *csvTable) Tuples(t chan<- interface{}) chan<- struct{} {
 
 	if r.sourceDistinct {
 		go func(reader *csv.Reader, e1 reflect.Type, res chan<- interface{}) {
-		Loop:
 			for {
 				record, err := reader.Read()
 
@@ -86,117 +85,14 @@ func (r *csvTable) Tuples(t chan<- interface{}) chan<- struct{} {
 					if err != io.EOF {
 						r.err = err
 					}
-					break Loop
+					break
 				}
 
 				tup := reflect.Indirect(reflect.New(e1))
-				if tup.NumField() != len(record) {
-					r.err = &FieldMismatch{tup.NumField(), len(record)}
-					break Loop
-				}
-
-				for i := 0; i < tup.NumField(); i++ {
-					f := tup.Field(i)
-					switch f.Kind() {
-					case reflect.String:
-						f.SetString(record[i])
-					case reflect.Bool:
-						val, err := strconv.ParseBool(record[i])
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-						f.SetBool(val)
-					case reflect.Int:
-						val, err := strconv.ParseInt(record[i], 0, 0)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-						f.SetInt(val)
-					case reflect.Int8:
-						val, err := strconv.ParseInt(record[i], 0, 8)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-						f.SetInt(val)
-					case reflect.Int16:
-						val, err := strconv.ParseInt(record[i], 0, 16)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-						f.SetInt(val)
-					case reflect.Int32:
-						val, err := strconv.ParseInt(record[i], 0, 32)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-						f.SetInt(val)
-					case reflect.Int64:
-						val, err := strconv.ParseInt(record[i], 0, 64)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-						f.SetInt(val)
-					case reflect.Uint:
-						val, err := strconv.ParseUint(record[i], 0, 0)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-						f.SetUint(val)
-					case reflect.Uint8:
-						val, err := strconv.ParseUint(record[i], 0, 8)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-						f.SetUint(val)
-					case reflect.Uint16:
-						val, err := strconv.ParseUint(record[i], 0, 16)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-						f.SetUint(val)
-					case reflect.Uint32:
-						val, err := strconv.ParseUint(record[i], 0, 32)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-						f.SetUint(val)
-					case reflect.Uint64:
-						val, err := strconv.ParseUint(record[i], 0, 64)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-						f.SetUint(val)
-					case reflect.Float32:
-						val, err := strconv.ParseFloat(record[i], 32)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-
-						f.SetFloat(val)
-					case reflect.Float64:
-						val, err := strconv.ParseFloat(record[i], 64)
-						if err != nil {
-							r.err = err
-							break Loop
-						}
-
-						f.SetFloat(val)
-					default:
-						r.err = &UnsupportedType{f.Type().String()}
-						break Loop
-					}
+				err = parseTuple(&tup, record)
+				if err != nil {
+					r.err = err
+					break
 				}
 				select {
 				case res <- tup.Interface():
@@ -209,7 +105,133 @@ func (r *csvTable) Tuples(t chan<- interface{}) chan<- struct{} {
 		}(r.source1, e1, t)
 		return cancel
 	}
+	m := map[interface{}]struct{}{}
+	go func(reader *csv.Reader, e1 reflect.Type, res chan<- interface{}) {
+		for {
+			record, err := reader.Read()
+
+			// if we have an error, it might just be eof, which means
+			// we are done reading the csv.
+			if err != nil {
+				if err != io.EOF {
+					r.err = err
+				}
+				break
+			}
+
+			tup := reflect.Indirect(reflect.New(e1))
+			err = parseTuple(&tup, record)
+			if err != nil {
+				r.err = err
+				break
+			}
+			if _, isdup := m[tup.Interface()]; !isdup {
+				m[tup.Interface()] = struct{}{}
+				select {
+				case res <- tup.Interface():
+				case <-cancel:
+					// do nothing, this is the end of the line
+					return
+				}
+			}
+		}
+		close(res)
+	}(r.source1, e1, t)
 	return cancel
+}
+
+func parseTuple(tup *reflect.Value, record []string) error {
+	if tup.NumField() != len(record) {
+		return &FieldMismatch{tup.NumField(), len(record)}
+	}
+	for i := 0; i < tup.NumField(); i++ {
+		f := tup.Field(i)
+		switch f.Kind() {
+		case reflect.String:
+			f.SetString(record[i])
+		case reflect.Bool:
+			val, err := strconv.ParseBool(record[i])
+			if err != nil {
+				return err
+			}
+			f.SetBool(val)
+		case reflect.Int:
+			val, err := strconv.ParseInt(record[i], 0, 0)
+			if err != nil {
+				return err
+			}
+			f.SetInt(val)
+		case reflect.Int8:
+			val, err := strconv.ParseInt(record[i], 0, 8)
+			if err != nil {
+				return err
+			}
+			f.SetInt(val)
+		case reflect.Int16:
+			val, err := strconv.ParseInt(record[i], 0, 16)
+			if err != nil {
+				return err
+			}
+			f.SetInt(val)
+		case reflect.Int32:
+			val, err := strconv.ParseInt(record[i], 0, 32)
+			if err != nil {
+				return err
+			}
+			f.SetInt(val)
+		case reflect.Int64:
+			val, err := strconv.ParseInt(record[i], 0, 64)
+			if err != nil {
+				return err
+			}
+			f.SetInt(val)
+		case reflect.Uint:
+			val, err := strconv.ParseUint(record[i], 0, 0)
+			if err != nil {
+				return err
+			}
+			f.SetUint(val)
+		case reflect.Uint8:
+			val, err := strconv.ParseUint(record[i], 0, 8)
+			if err != nil {
+				return err
+			}
+			f.SetUint(val)
+		case reflect.Uint16:
+			val, err := strconv.ParseUint(record[i], 0, 16)
+			if err != nil {
+				return err
+			}
+			f.SetUint(val)
+		case reflect.Uint32:
+			val, err := strconv.ParseUint(record[i], 0, 32)
+			if err != nil {
+				return err
+			}
+			f.SetUint(val)
+		case reflect.Uint64:
+			val, err := strconv.ParseUint(record[i], 0, 64)
+			if err != nil {
+				return err
+			}
+			f.SetUint(val)
+		case reflect.Float32:
+			val, err := strconv.ParseFloat(record[i], 32)
+			if err != nil {
+				return err
+			}
+			f.SetFloat(val)
+		case reflect.Float64:
+			val, err := strconv.ParseFloat(record[i], 64)
+			if err != nil {
+				return err
+			}
+			f.SetFloat(val)
+		default:
+			return &UnsupportedType{f.Type().String()}
+		}
+	}
+	return nil
 }
 
 // Zero returns the zero value of the relation (a blank tuple)
