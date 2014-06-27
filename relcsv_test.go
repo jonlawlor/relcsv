@@ -1,11 +1,10 @@
-//csv_test implements some tests for csv based relations
+//relcsv_test implements some tests for csv based relations
 
-package csv
+package relcsv
 
 import (
 	"encoding/csv"
 	"github.com/jonlawlor/rel"
-	"github.com/jonlawlor/rel/att"
 	"strings"
 	"testing"
 )
@@ -114,12 +113,12 @@ func TestCSV(t *testing.T) {
 		expectCard   int
 	}{
 		{suppliers(), "Relation(SNO, SName, Status, City)", 4, 5},
-		{suppliers().Restrict(att.Attribute("SNO").EQ(1)), "σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 1},
+		{suppliers().Restrict(rel.Attribute("SNO").EQ(1)), "σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 1},
 		{suppliers().Project(distinctTup{}), "π{SNO, SName}(Relation(SNO, SName, Status, City))", 2, 5},
 		{suppliers().Project(nonDistinctTup{}), "π{SName, City}(Relation(SNO, SName, Status, City))", 2, 5},
 		{suppliers().Rename(titleCaseTup{}), "Relation(Sno, SName, Status, City)", 4, 5},
-		{suppliers().Diff(suppliers().Restrict(att.Attribute("SNO").EQ(1))), "Relation(SNO, SName, Status, City) − σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 4},
-		{suppliers().Union(suppliers().Restrict(att.Attribute("SNO").EQ(1))), "Relation(SNO, SName, Status, City) ∪ σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 5},
+		{suppliers().Diff(suppliers().Restrict(rel.Attribute("SNO").EQ(1))), "Relation(SNO, SName, Status, City) − σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 4},
+		{suppliers().Union(suppliers().Restrict(rel.Attribute("SNO").EQ(1))), "Relation(SNO, SName, Status, City) ∪ σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 5},
 		{suppliers().Join(orders(), joinTup{}), "Relation(SNO, SName, Status, City) ⋈ Relation(PNO, SNO, Qty)", 6, 11},
 		{suppliers().GroupBy(groupByTup{}, groupFcn), "Relation(SNO, SName, Status, City).GroupBy({City, Status}->{Status})", 2, 3},
 		{suppliers().Map(mapFcn, mapKeys), "Relation(SNO, SName, Status, City).Map({SNO, SName, Status, City}->{SNO, SName, Status2, City})", 4, 5},

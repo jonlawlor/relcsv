@@ -1,10 +1,11 @@
-// Package csv implements a rel.Relation object that uses csv.Reader
-package csv
+// Package relcsv implements a rel.Relation object that uses csv.Reader.
+// The name is nonstandard go because callers would always have to use a type
+// alias to construct one otherwise.
+package relcsv
 
 import (
 	"encoding/csv"
 	"github.com/jonlawlor/rel"
-	"github.com/jonlawlor/rel/att"
 	"io"
 	"reflect"
 	"strconv"
@@ -14,10 +15,10 @@ import (
 
 func New(r *csv.Reader, z interface{}, ckeystr [][]string) rel.Relation {
 	if len(ckeystr) == 0 {
-		return &csvTable{r, att.DefaultKeys(z), z, false, nil}
+		return &csvTable{r, rel.DefaultKeys(z), z, false, nil}
 	}
-	ckeys := att.String2CandKeys(ckeystr)
-	att.OrderCandidateKeys(ckeys)
+	ckeys := rel.String2CandKeys(ckeystr)
+	rel.OrderCandidateKeys(ckeys)
 	return &csvTable{r, ckeys, z, true, nil}
 }
 
@@ -27,7 +28,7 @@ type csvTable struct {
 	source1 *csv.Reader
 
 	// set of candidate keys
-	cKeys att.CandKeys
+	cKeys rel.CandKeys
 
 	// the type of the tuples contained within the relation
 	zero interface{}
@@ -61,7 +62,7 @@ func (r *csvTable) TupleChan(t interface{}) chan<- struct{} {
 	cancel := make(chan struct{})
 	// reflect on the channel
 	chv := reflect.ValueOf(t)
-	err := att.EnsureChan(chv.Type(), r.zero)
+	err := rel.EnsureChan(chv.Type(), r.zero)
 	if err != nil {
 		r.err = err
 		return cancel
@@ -241,7 +242,7 @@ func (r *csvTable) Zero() interface{} {
 }
 
 // CKeys is the set of candidate keys in the relation
-func (r *csvTable) CKeys() att.CandKeys {
+func (r *csvTable) CKeys() rel.CandKeys {
 	return r.cKeys
 }
 
@@ -266,7 +267,7 @@ func (r1 *csvTable) Project(z2 interface{}) rel.Relation {
 // This is a general purpose restrict - we might want to have specific ones for
 // the typical theta comparisons or <= <, =, >, >=, because it will allow much
 // better optimization on the source data side.
-func (r1 *csvTable) Restrict(p att.Predicate) rel.Relation {
+func (r1 *csvTable) Restrict(p rel.Predicate) rel.Relation {
 	return rel.NewRestrict(r1, p)
 }
 
@@ -278,27 +279,27 @@ func (r1 *csvTable) Rename(z2 interface{}) rel.Relation {
 	e2 := reflect.TypeOf(z2)
 
 	// figure out the new names
-	names2 := att.FieldNames(e2)
+	names2 := rel.FieldNames(e2)
 
 	// create a map from the old names to the new names if there is any
 	// difference between them
-	nameMap := make(map[att.Attribute]att.Attribute)
+	nameMap := make(map[rel.Attribute]rel.Attribute)
 	for i, att := range rel.Heading(r1) {
 		nameMap[att] = names2[i]
 	}
 
 	cKeys1 := r1.cKeys
-	cKeys2 := make(att.CandKeys, len(cKeys1))
+	cKeys2 := make(rel.CandKeys, len(cKeys1))
 	// for each of the candidate keys, rename any keys from the old names to
 	// the new ones
 	for i := range cKeys1 {
-		cKeys2[i] = make([]att.Attribute, len(cKeys1[i]))
+		cKeys2[i] = make([]rel.Attribute, len(cKeys1[i]))
 		for j, key := range cKeys1[i] {
 			cKeys2[i][j] = nameMap[key]
 		}
 	}
 	// order the keys
-	att.OrderCandidateKeys(cKeys2)
+	rel.OrderCandidateKeys(cKeys2)
 
 	r1.zero = z2
 	r1.cKeys = cKeys2
