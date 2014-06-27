@@ -51,31 +51,35 @@ func (e *FieldMismatch) Error() string {
 	return "CSV line fields mismatch. Expected " + strconv.Itoa(e.expected) + " found " + strconv.Itoa(e.found)
 }
 
-type UnsupportedType struct {
-	Type string
+type UnsupportedType string
+
+func (e UnsupportedType) Error() string {
+	return "Unsupported type: " + string(e)
 }
 
-func (e *UnsupportedType) Error() string {
-	return "Unsupported type: " + e.Type
-}
-
-// Tuples sends each tuple in the relation to a channel
-// note: this consumes the values of the relation, and when it is finished it
-// closes the input channel.
-func (r *csvTable) Tuples(t chan<- interface{}) chan<- struct{} {
+func (r *csvTable) TupleChan(t interface{}) chan<- struct{} {
 	cancel := make(chan struct{})
-
-	if r.Err() != nil {
-		close(t)
+	// reflect on the channel
+	chv := reflect.ValueOf(t)
+	err := att.EnsureChan(chv.Type(), r.zero)
+	if err != nil {
+		r.err = err
+		return cancel
+	}
+	if r.err != nil {
+		chv.Close()
 		return cancel
 	}
 	e1 := reflect.TypeOf(r.zero)
-	// the unmarshaller is based on this stackoverflow answer:
+	// unmarshaller based on this stackoverflow answer:
 	// http://stackoverflow.com/a/20773337/774834
 	// thanks, Valentyn Shybanov!
 
 	if r.sourceDistinct {
-		go func(reader *csv.Reader, e1 reflect.Type, res chan<- interface{}) {
+		go func(reader *csv.Reader, e1 reflect.Type, res reflect.Value) {
+			resSel := reflect.SelectCase{reflect.SelectSend, res, reflect.Value{}}
+			canSel := reflect.SelectCase{reflect.SelectRecv, reflect.ValueOf(cancel), reflect.Value{}}
+
 			for {
 				record, err := reader.Read()
 
@@ -94,19 +98,21 @@ func (r *csvTable) Tuples(t chan<- interface{}) chan<- struct{} {
 					r.err = err
 					break
 				}
-				select {
-				case res <- tup.Interface():
-				case <-cancel:
-					// do nothing, this is the end of the line
+				resSel.Send = tup
+				chosen, _, _ := reflect.Select([]reflect.SelectCase{canSel, resSel})
+				if chosen == 0 {
+					// cancel has been closed, so close the results
 					return
 				}
 			}
-			close(res)
-		}(r.source1, e1, t)
+			res.Close()
+		}(r.source1, e1, chv)
 		return cancel
 	}
 	m := map[interface{}]struct{}{}
-	go func(reader *csv.Reader, e1 reflect.Type, res chan<- interface{}) {
+	go func(reader *csv.Reader, e1 reflect.Type, res reflect.Value) {
+		resSel := reflect.SelectCase{reflect.SelectSend, res, reflect.Value{}}
+		canSel := reflect.SelectCase{reflect.SelectRecv, reflect.ValueOf(cancel), reflect.Value{}}
 		for {
 			record, err := reader.Read()
 
@@ -121,22 +127,17 @@ func (r *csvTable) Tuples(t chan<- interface{}) chan<- struct{} {
 
 			tup := reflect.Indirect(reflect.New(e1))
 			err = parseTuple(&tup, record)
-			if err != nil {
-				r.err = err
-				break
-			}
 			if _, isdup := m[tup.Interface()]; !isdup {
-				m[tup.Interface()] = struct{}{}
-				select {
-				case res <- tup.Interface():
-				case <-cancel:
-					// do nothing, this is the end of the line
+				resSel.Send = tup
+				chosen, _, _ := reflect.Select([]reflect.SelectCase{canSel, resSel})
+				if chosen == 0 {
+					// cancel has been closed, so close the results
 					return
 				}
 			}
 		}
-		close(res)
-	}(r.source1, e1, t)
+		res.Close()
+	}(r.source1, e1, chv)
 	return cancel
 }
 
@@ -228,7 +229,7 @@ func parseTuple(tup *reflect.Value, record []string) error {
 			}
 			f.SetFloat(val)
 		default:
-			return &UnsupportedType{f.Type().String()}
+			return UnsupportedType(f.Type().String())
 		}
 	}
 	return nil
@@ -310,10 +311,10 @@ func (r1 *csvTable) Union(r2 rel.Relation) rel.Relation {
 	return rel.NewUnion(r1, r2)
 }
 
-// SetDiff creates a new relation by set minusing the two inputs
+// Diff creates a new relation by set minusing the two inputs
 //
-func (r1 *csvTable) SetDiff(r2 rel.Relation) rel.Relation {
-	return rel.NewSetDiff(r1, r2)
+func (r1 *csvTable) Diff(r2 rel.Relation) rel.Relation {
+	return rel.NewDiff(r1, r2)
 }
 
 // Join creates a new relation by performing a natural join on the inputs
@@ -324,13 +325,13 @@ func (r1 *csvTable) Join(r2 rel.Relation, zero interface{}) rel.Relation {
 
 // GroupBy creates a new relation by grouping and applying a user defined func
 //
-func (r1 *csvTable) GroupBy(t2, vt interface{}, gfcn func(<-chan interface{}) interface{}) rel.Relation {
-	return rel.NewGroupBy(r1, t2, vt, gfcn)
+func (r1 *csvTable) GroupBy(t2, gfcn interface{}) rel.Relation {
+	return rel.NewGroupBy(r1, t2, gfcn)
 }
 
 // Map creates a new relation by applying a function to tuples in the source
-func (r1 *csvTable) Map(mfcn func(from interface{}) (to interface{}), z2 interface{}, ckeystr [][]string) rel.Relation {
-	return rel.NewMap(r1, mfcn, z2, ckeystr)
+func (r1 *csvTable) Map(mfcn interface{}, ckeystr [][]string) rel.Relation {
+	return rel.NewMap(r1, mfcn, ckeystr)
 }
 
 // Error returns an error encountered during construction or computation

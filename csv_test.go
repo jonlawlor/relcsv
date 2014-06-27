@@ -88,11 +88,10 @@ func TestCSV(t *testing.T) {
 	type valTup struct {
 		Status int
 	}
-	groupFcn := func(val <-chan interface{}) interface{} {
+	groupFcn := func(val <-chan valTup) valTup {
 		res := valTup{}
 		for vi := range val {
-			v := vi.(valTup)
-			res.Status += v.Status
+			res.Status += vi.Status
 		}
 		return res
 	}
@@ -102,12 +101,8 @@ func TestCSV(t *testing.T) {
 		Status2 int
 		City    string
 	}
-	mapFcn := func(tup1 interface{}) interface{} {
-		if v, ok := tup1.(supplierTup); ok {
-			return mapRes{v.SNO, v.SName, v.Status * 2, v.City}
-		} else {
-			return mapRes{}
-		}
+	mapFcn := func(tup1 supplierTup) mapRes {
+		return mapRes{tup1.SNO, tup1.SName, tup1.Status * 2, tup1.City}
 	}
 	mapKeys := [][]string{
 		[]string{"SNO"},
@@ -123,12 +118,12 @@ func TestCSV(t *testing.T) {
 		{suppliers().Project(distinctTup{}), "π{SNO, SName}(Relation(SNO, SName, Status, City))", 2, 5},
 		{suppliers().Project(nonDistinctTup{}), "π{SName, City}(Relation(SNO, SName, Status, City))", 2, 5},
 		{suppliers().Rename(titleCaseTup{}), "Relation(Sno, SName, Status, City)", 4, 5},
-		{suppliers().SetDiff(suppliers().Restrict(att.Attribute("SNO").EQ(1))), "Relation(SNO, SName, Status, City) − σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 4},
+		{suppliers().Diff(suppliers().Restrict(att.Attribute("SNO").EQ(1))), "Relation(SNO, SName, Status, City) − σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 4},
 		{suppliers().Union(suppliers().Restrict(att.Attribute("SNO").EQ(1))), "Relation(SNO, SName, Status, City) ∪ σ{SNO == 1}(Relation(SNO, SName, Status, City))", 4, 5},
 		{suppliers().Join(orders(), joinTup{}), "Relation(SNO, SName, Status, City) ⋈ Relation(PNO, SNO, Qty)", 6, 11},
-		{suppliers().GroupBy(groupByTup{}, valTup{}, groupFcn), "Relation(SNO, SName, Status, City).GroupBy({City, Status}, {Status})", 2, 3},
-		{suppliers().Map(mapFcn, mapRes{}, mapKeys), "Relation(SNO, SName, Status, City).Map({SNO, SName, Status, City}->{SNO, SName, Status2, City})", 4, 5},
-		{suppliers().Map(mapFcn, mapRes{}, [][]string{}), "Relation(SNO, SName, Status, City).Map({SNO, SName, Status, City}->{SNO, SName, Status2, City})", 4, 5},
+		{suppliers().GroupBy(groupByTup{}, groupFcn), "Relation(SNO, SName, Status, City).GroupBy({City, Status}->{Status})", 2, 3},
+		{suppliers().Map(mapFcn, mapKeys), "Relation(SNO, SName, Status, City).Map({SNO, SName, Status, City}->{SNO, SName, Status2, City})", 4, 5},
+		{suppliers().Map(mapFcn, [][]string{}), "Relation(SNO, SName, Status, City).Map({SNO, SName, Status, City}->{SNO, SName, Status2, City})", 4, 5},
 	}
 
 	for i, tt := range relTest {
