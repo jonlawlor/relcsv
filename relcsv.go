@@ -301,9 +301,7 @@ func (r1 *csvTable) Rename(z2 interface{}) rel.Relation {
 	// order the keys
 	rel.OrderCandidateKeys(cKeys2)
 
-	r1.zero = z2
-	r1.cKeys = cKeys2
-	return r1
+	return &csvTable{r1.source1, cKeys2, z2, r1.sourceDistinct, r1.err}
 }
 
 // Union creates a new relation by unioning the bodies of both inputs
