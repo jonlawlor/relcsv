@@ -248,7 +248,7 @@ func (r *csvTable) CKeys() rel.CandKeys {
 
 // GoString returns a text representation of the Relation
 func (r *csvTable) GoString() string {
-	return "placeholder"
+	return "relcsv.New(" + rel.HeadingString(r) + ")" // this could be more specific?
 }
 
 // String returns a text representation of the Relation
