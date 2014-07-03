@@ -78,8 +78,8 @@ func (r *csvTable) TupleChan(t interface{}) chan<- struct{} {
 
 	if r.sourceDistinct {
 		go func(reader *csv.Reader, e1 reflect.Type, res reflect.Value) {
-			resSel := reflect.SelectCase{reflect.SelectSend, res, reflect.Value{}}
-			canSel := reflect.SelectCase{reflect.SelectRecv, reflect.ValueOf(cancel), reflect.Value{}}
+			resSel := reflect.SelectCase{Dir: reflect.SelectSend, Chan: res}
+			canSel := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(cancel)}
 
 			for {
 				record, err := reader.Read()
@@ -112,8 +112,8 @@ func (r *csvTable) TupleChan(t interface{}) chan<- struct{} {
 	}
 	m := map[interface{}]struct{}{}
 	go func(reader *csv.Reader, e1 reflect.Type, res reflect.Value) {
-		resSel := reflect.SelectCase{reflect.SelectSend, res, reflect.Value{}}
-		canSel := reflect.SelectCase{reflect.SelectRecv, reflect.ValueOf(cancel), reflect.Value{}}
+		resSel := reflect.SelectCase{Dir: reflect.SelectSend, Chan: res}
+		canSel := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(cancel)}
 		for {
 			record, err := reader.Read()
 
