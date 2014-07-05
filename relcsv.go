@@ -12,7 +12,6 @@ import (
 )
 
 // New creates a relation that reads from csv, with one tuple per csv record.
-
 func New(r *csv.Reader, z interface{}, ckeystr [][]string) rel.Relation {
 	if len(ckeystr) == 0 {
 		return &csvTable{r, rel.DefaultKeys(z), z, false, nil}
@@ -44,6 +43,8 @@ type csvTable struct {
 
 // error types
 
+// FieldMismatch is an error which represents what happens when a csv file has
+// an incorrect number of fields.
 type FieldMismatch struct {
 	expected, found int
 }
@@ -52,31 +53,33 @@ func (e *FieldMismatch) Error() string {
 	return "CSV line fields mismatch. Expected " + strconv.Itoa(e.expected) + " found " + strconv.Itoa(e.found)
 }
 
+// UnsupportedType is an error which represents what happens when a field is
+// the wrong type compared to what is expected.
 type UnsupportedType string
 
 func (e UnsupportedType) Error() string {
 	return "Unsupported type: " + string(e)
 }
 
-func (r *csvTable) TupleChan(t interface{}) chan<- struct{} {
+func (r1 *csvTable) TupleChan(t interface{}) chan<- struct{} {
 	cancel := make(chan struct{})
 	// reflect on the channel
 	chv := reflect.ValueOf(t)
-	err := rel.EnsureChan(chv.Type(), r.zero)
+	err := rel.EnsureChan(chv.Type(), r1.zero)
 	if err != nil {
-		r.err = err
+		r1.err = err
 		return cancel
 	}
-	if r.err != nil {
+	if r1.err != nil {
 		chv.Close()
 		return cancel
 	}
-	e1 := reflect.TypeOf(r.zero)
+	e1 := reflect.TypeOf(r1.zero)
 	// unmarshaller based on this stackoverflow answer:
 	// http://stackoverflow.com/a/20773337/774834
 	// thanks, Valentyn Shybanov!
 
-	if r.sourceDistinct {
+	if r1.sourceDistinct {
 		go func(reader *csv.Reader, e1 reflect.Type, res reflect.Value) {
 			resSel := reflect.SelectCase{Dir: reflect.SelectSend, Chan: res}
 			canSel := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(cancel)}
@@ -88,7 +91,7 @@ func (r *csvTable) TupleChan(t interface{}) chan<- struct{} {
 				// we are done reading the csv.
 				if err != nil {
 					if err != io.EOF {
-						r.err = err
+						r1.err = err
 					}
 					break
 				}
@@ -96,7 +99,7 @@ func (r *csvTable) TupleChan(t interface{}) chan<- struct{} {
 				tup := reflect.Indirect(reflect.New(e1))
 				err = parseTuple(&tup, record)
 				if err != nil {
-					r.err = err
+					r1.err = err
 					break
 				}
 				resSel.Send = tup
@@ -107,7 +110,7 @@ func (r *csvTable) TupleChan(t interface{}) chan<- struct{} {
 				}
 			}
 			res.Close()
-		}(r.source1, e1, chv)
+		}(r1.source1, e1, chv)
 		return cancel
 	}
 	m := map[interface{}]struct{}{}
@@ -121,7 +124,7 @@ func (r *csvTable) TupleChan(t interface{}) chan<- struct{} {
 			// we are done reading the csv.
 			if err != nil {
 				if err != io.EOF {
-					r.err = err
+					r1.err = err
 				}
 				break
 			}
@@ -138,7 +141,7 @@ func (r *csvTable) TupleChan(t interface{}) chan<- struct{} {
 			}
 		}
 		res.Close()
-	}(r.source1, e1, chv)
+	}(r1.source1, e1, chv)
 	return cancel
 }
 
@@ -237,33 +240,33 @@ func parseTuple(tup *reflect.Value, record []string) error {
 }
 
 // Zero returns the zero value of the relation (a blank tuple)
-func (r *csvTable) Zero() interface{} {
-	return r.zero
+func (r1 *csvTable) Zero() interface{} {
+	return r1.zero
 }
 
 // CKeys is the set of candidate keys in the relation
-func (r *csvTable) CKeys() rel.CandKeys {
-	return r.cKeys
+func (r1 *csvTable) CKeys() rel.CandKeys {
+	return r1.cKeys
 }
 
 // GoString returns a text representation of the Relation
-func (r *csvTable) GoString() string {
-	return "relcsv.New(" + rel.HeadingString(r) + ")" // this could be more specific?
+func (r1 *csvTable) GoString() string {
+	return "relcsv.New(" + rel.HeadingString(r1) + ")" // this could be more specific?
 }
 
 // String returns a text representation of the Relation
-func (r *csvTable) String() string {
-	return "Relation(" + rel.HeadingString(r) + ")"
+func (r1 *csvTable) String() string {
+	return "Relation(" + rel.HeadingString(r1) + ")"
 }
 
 // Project creates a new relation with less than or equal degree
-// t2 has to be a new type which is a subdomain of r.
+// t2 has to be a new type which is a subdomain of r1.
 func (r1 *csvTable) Project(z2 interface{}) rel.Relation {
 	return rel.NewProject(r1, z2)
 }
 
 // Restrict creates a new relation with less than or equal cardinality
-// p has to be a func(tup T) bool where tup is a subdomain of the input r.
+// p has to be a func(tup T) bool where tup is a subdomain of the input r1.
 // This is a general purpose restrict - we might want to have specific ones for
 // the typical theta comparisons or <= <, =, >, >=, because it will allow much
 // better optimization on the source data side.
